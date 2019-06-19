@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/minio/minio/pkg/wildcard"
 	types "github.com/nirmata/kyverno/pkg/apis/policy/v1alpha1"
 	lister "github.com/nirmata/kyverno/pkg/client/listers/policy/v1alpha1"
 	client "github.com/nirmata/kyverno/pkg/dclient"
+	"github.com/nirmata/kyverno/pkg/engine"
 	"github.com/nirmata/kyverno/pkg/event"
 	"github.com/nirmata/kyverno/pkg/sharedinformer"
 	violation "github.com/nirmata/kyverno/pkg/violation"
@@ -175,4 +177,56 @@ func (pc *PolicyController) syncHandler(obj interface{}) error {
 	//TODO: processPolicy
 	glog.Infof("process policy %s on existing resources", policy.GetName())
 	return nil
+}
+
+func (pc *PolicyController) processPolicy(p *types.Policy) {
+	// Get all resources on which the policy is to be applied
+	for _, rule := range p.Spec.Rules {
+		for _, k := range rule.Kinds {
+			// get resources of defined kinds->resources
+			gvr := pc.client.GetGVRFromKind(k)
+			// LabelSelector
+			// namespace ?
+			list, err := pc.client.ListResource(gvr.Resource, "", rule.Selector)
+			if err != nil {
+				glog.Errorf("unable to list resources for %s with label selector %", gvr.Resource, rule.Selector.String())
+				glog.Errorf("unable to apply policy %s rule %s. err : %s", p.Name, rule.Name, err)
+				continue
+			}
+
+			for _, resource := range list.Items {
+				// wild card matching
+				if wildcard.Match(rule.Name, resource.GetName()) {
+					gvk := resource.GroupVersionKind()
+					rawResource, err := resource.MarshalJSON()
+					if err != nil {
+						glog.Errorf("Unable to json parse resource %s", resource.GetName())
+						continue
+					}
+					applyPolicy(p, rawResource, &metav1.GroupVersionKind{Group: gvk.Group,
+						Version: gvk.Version,
+						Kind:    gvk.Kind})
+				}
+			}
+		}
+	}
+}
+
+func applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) {
+	//TODO: PR #181 use the list of kinds to filter here too
+
+	patches, result := engine.Mutate(*p, rawResource, *gvk)
+	//	err := result.ToError()
+	fmt.Println(result.String())
+	// create events accordingly to result
+	if patches != nil {
+		// patches should be nil or empty if the overlay or patch is already applied
+		// as the existing resouces are not to be modified we create policy violations
+		// Create Violation
+	}
+	result = engine.Validate(*p, rawResource, *gvk)
+	fmt.Println(result.String())
+	// create events accordingly to result
+
+	// Generate ??
 }

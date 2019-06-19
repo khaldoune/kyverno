@@ -11,6 +11,7 @@ import (
 	apps "k8s.io/api/apps/v1"
 	certificates "k8s.io/api/certificates/v1beta1"
 	v1 "k8s.io/api/core/v1"
+	helperv1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -110,8 +111,12 @@ func (c *Client) GetResource(resource string, namespace string, name string) (*u
 
 // ListResource returns the list of resources in unstructured/json format
 // Access items using []Items
-func (c *Client) ListResource(resource string, namespace string) (*unstructured.UnstructuredList, error) {
-	return c.getResourceInterface(resource, namespace).List(meta.ListOptions{})
+func (c *Client) ListResource(resource string, namespace string, lselector *meta.LabelSelector) (*unstructured.UnstructuredList, error) {
+	options := meta.ListOptions{}
+	if lselector != nil {
+		options = meta.ListOptions{LabelSelector: helperv1.FormatLabelSelector(lselector)}
+	}
+	return c.getResourceInterface(resource, namespace).List(options)
 }
 
 // DeleteResouce deletes the specified resource
@@ -173,7 +178,7 @@ func ConvertToRuntimeObject(obj *unstructured.Unstructured) (*runtime.Object, er
 // GenerateResource creates resource of the specified kind(supports 'clone' & 'data')
 func (c *Client) GenerateResource(generator types.Generation, namespace string) error {
 	var err error
-	rGVR := c.getGVRFromKind(generator.Kind)
+	rGVR := c.GetGVRFromKind(generator.Kind)
 	resource := &unstructured.Unstructured{}
 
 	var rdata map[string]interface{}
@@ -268,7 +273,7 @@ func (c *Client) getGVR(resource string) schema.GroupVersionResource {
 
 //To-do: measure performance
 //To-do: evaluate DefaultRESTMapper to fetch kind->resource mapping
-func (c *Client) getGVRFromKind(kind string) schema.GroupVersionResource {
+func (c *Client) GetGVRFromKind(kind string) schema.GroupVersionResource {
 	emptyGVR := schema.GroupVersionResource{}
 	serverresources, err := c.cachedClient.ServerPreferredResources()
 	if err != nil {

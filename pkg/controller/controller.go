@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/golang/glog"
 	"github.com/minio/minio/pkg/wildcard"
 	types "github.com/nirmata/kyverno/pkg/apis/policy/v1alpha1"
@@ -90,7 +91,6 @@ func (pc *PolicyController) enqueuePolicy(obj interface{}) {
 // Run is main controller thread
 func (pc *PolicyController) Run(stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash()
-	defer pc.queue.ShutDown()
 
 	if ok := cache.WaitForCacheSync(stopCh, pc.policySynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
@@ -106,6 +106,7 @@ func (pc *PolicyController) Run(stopCh <-chan struct{}) error {
 
 //Stop to perform actions when controller is stopped
 func (pc *PolicyController) Stop() {
+	defer pc.queue.ShutDown()
 	glog.Info("shutting down policy controller workers")
 }
 func (pc *PolicyController) runWorker() {
@@ -211,6 +212,7 @@ func (pc *PolicyController) processPolicy(p *types.Policy) {
 						continue
 					}
 				}
+				glog.Info(string(rawResource))
 				ri := &resourceInfo{rawResource: rawResource, gvk: &metav1.GroupVersionKind{Group: gvk.Group,
 					Version: gvk.Version,
 					Kind:    gvk.Kind}}
@@ -227,10 +229,28 @@ func (pc *PolicyController) processPolicy(p *types.Policy) {
 
 func (pc *PolicyController) applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) {
 	//TODO: PR #181 use the list of kinds to filter here too
-
 	patches, result := engine.Mutate(*p, rawResource, *gvk)
-	//	err := result.ToError()
-	fmt.Println(result.String())
+	// option 2: (original Resource + patch) compare with (original resource)
+	mergePatches := engine.JoinPatches(patches)
+	// merge the patches
+	patch, err := jsonpatch.DecodePatch(mergePatches)
+	if err != nil {
+		glog.Error(err)
+		return
+	}
+	// apply the patches returned by mutate to the original resource
+	patchedResource, err := patch.Apply(rawResource)
+	if err != nil {
+		glog.Error(err)
+		return
+	}
+	// compare (original Resource + patch) vs (original resource)
+	// to verify if they are equal
+	if !jsonpatch.Equal(patchedResource, rawResource) {
+		glog.Info("As objects are different, there is a non applied mutation overlay or patch. So create a violation to inform the user to correct it")
+	} else {
+		glog.Info("resources are equal, not mutatation required")
+	}
 	// create events accordingly to result
 	if patches != nil {
 		// patches should be nil or empty if the overlay or patch is already applied

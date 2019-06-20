@@ -82,7 +82,6 @@ func (c *controller) Add(info Info) {
 
 func (c *controller) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
-	defer c.queue.ShutDown()
 
 	for i := 0; i < eventWorkerThreadCount; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
@@ -92,6 +91,7 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 
 func (c *controller) Stop() {
 	glog.Info("Shutting down eventbuilder controller workers")
+	defer c.queue.ShutDown()
 }
 func (c *controller) runWorker() {
 	for c.processNextWorkItem() {
@@ -144,7 +144,7 @@ func (c *controller) SyncHandler(key Info) error {
 			utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key.Resource))
 			return err
 		}
-		resource, err = c.client.GetResource(key.Kind, namespace, name)
+		resource, err = c.client.GetResource(c.client.GetGVRFromKind(key.Kind).Resource, namespace, name)
 		if err != nil {
 			return err
 		}

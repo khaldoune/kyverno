@@ -45,7 +45,8 @@ func (wrc *WebhookRegistrationClient) Register() error {
 		glog.Infof("Registering webhook with url https://%s\n", wrc.serverIP)
 	}
 	// For the case if cluster already has this configs
-	wrc.Deregister()
+	if err := wrc.Deregister(); err != nil {
+	}
 
 	mutatingWebhookConfig, err := wrc.constructMutatingWebhookConfig(wrc.clientConfig)
 	if err != nil {
@@ -73,15 +74,23 @@ func (wrc *WebhookRegistrationClient) Register() error {
 // Deregister deletes webhook configs from cluster
 // This function does not fail on error:
 // Register will fail if the config exists, so there is no need to fail on error
-func (wrc *WebhookRegistrationClient) Deregister() {
+func (wrc *WebhookRegistrationClient) Deregister() error {
 	if wrc.serverIP != "" {
-		wrc.registrationClient.MutatingWebhookConfigurations().Delete(config.MutatingWebhookConfigurationDebug, &meta.DeleteOptions{})
-		wrc.registrationClient.ValidatingWebhookConfigurations().Delete(config.ValidatingWebhookConfigurationDebug, &meta.DeleteOptions{})
-		return
+		if err := wrc.registrationClient.MutatingWebhookConfigurations().Delete(config.MutatingWebhookConfigurationDebug, &meta.DeleteOptions{}); err != nil {
+			return err
+		}
+		if err := wrc.registrationClient.ValidatingWebhookConfigurations().Delete(config.ValidatingWebhookConfigurationDebug, &meta.DeleteOptions{}); err != nil {
+			return err
+		}
 	}
 
-	wrc.registrationClient.MutatingWebhookConfigurations().Delete(config.MutatingWebhookConfigurationName, &meta.DeleteOptions{})
-	wrc.registrationClient.ValidatingWebhookConfigurations().Delete(config.ValidatingWebhookConfigurationName, &meta.DeleteOptions{})
+	if err := wrc.registrationClient.MutatingWebhookConfigurations().Delete(config.MutatingWebhookConfigurationName, &meta.DeleteOptions{}); err != nil {
+		return err
+	}
+	if err := wrc.registrationClient.ValidatingWebhookConfigurations().Delete(config.ValidatingWebhookConfigurationName, &meta.DeleteOptions{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (wrc *WebhookRegistrationClient) constructMutatingWebhookConfig(configuration *rest.Config) (*admregapi.MutatingWebhookConfiguration, error) {

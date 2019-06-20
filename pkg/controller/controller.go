@@ -175,44 +175,57 @@ func (pc *PolicyController) syncHandler(obj interface{}) error {
 	// get the violations and pass to violation Builder
 	// get the events and pass to event Builder
 	//TODO: processPolicy
+	pc.processPolicy(policy)
+
 	glog.Infof("process policy %s on existing resources", policy.GetName())
 	return nil
 }
 
 func (pc *PolicyController) processPolicy(p *types.Policy) {
 	// Get all resources on which the policy is to be applied
+	resources := []*resourceInfo{}
 	for _, rule := range p.Spec.Rules {
 		for _, k := range rule.Kinds {
 			// get resources of defined kinds->resources
 			gvr := pc.client.GetGVRFromKind(k)
 			// LabelSelector
 			// namespace ?
-			list, err := pc.client.ListResource(gvr.Resource, "", rule.Selector)
+			list, err := pc.client.ListResource(gvr.Resource, "", rule.ResourceDescription.Selector)
 			if err != nil {
-				glog.Errorf("unable to list resources for %s with label selector %", gvr.Resource, rule.Selector.String())
+				glog.Errorf("unable to list resources for %s with label selector %s", gvr.Resource, rule.Selector.String())
 				glog.Errorf("unable to apply policy %s rule %s. err : %s", p.Name, rule.Name, err)
 				continue
 			}
 
 			for _, resource := range list.Items {
-				// wild card matching
-				if wildcard.Match(rule.Name, resource.GetName()) {
-					gvk := resource.GroupVersionKind()
-					rawResource, err := resource.MarshalJSON()
-					if err != nil {
-						glog.Errorf("Unable to json parse resource %s", resource.GetName())
+				name := rule.ResourceDescription.Name
+				gvk := resource.GroupVersionKind()
+				rawResource, err := resource.MarshalJSON()
+				if err != nil {
+					glog.Errorf("Unable to json parse resource %s", resource.GetName())
+					continue
+				}
+				if name != nil {
+					// wild card matching
+					if !wildcard.Match(*name, resource.GetName()) {
 						continue
 					}
-					applyPolicy(p, rawResource, &metav1.GroupVersionKind{Group: gvk.Group,
-						Version: gvk.Version,
-						Kind:    gvk.Kind})
 				}
+				ri := &resourceInfo{rawResource: rawResource, gvk: &metav1.GroupVersionKind{Group: gvk.Group,
+					Version: gvk.Version,
+					Kind:    gvk.Kind}}
+				resources = append(resources, ri)
 			}
 		}
 	}
+	// for the filtered resource apply policy
+	for _, r := range resources {
+		pc.applyPolicy(p, r.rawResource, r.gvk)
+	}
+	// apply policies on the filtered resources
 }
 
-func applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) {
+func (pc *PolicyController) applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) {
 	//TODO: PR #181 use the list of kinds to filter here too
 
 	patches, result := engine.Mutate(*p, rawResource, *gvk)
@@ -227,6 +240,5 @@ func applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKi
 	result = engine.Validate(*p, rawResource, *gvk)
 	fmt.Println(result.String())
 	// create events accordingly to result
-
 	// Generate ??
 }

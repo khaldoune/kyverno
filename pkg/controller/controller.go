@@ -30,7 +30,7 @@ type PolicyController struct {
 	policyLister     lister.PolicyLister
 	policySynced     cache.InformerSynced
 	violationBuilder violation.Generator
-	eventBuilder     event.Generator
+	eventController  event.Generator
 	queue            workqueue.RateLimitingInterface
 	filterKinds      []string
 }
@@ -46,7 +46,7 @@ func NewPolicyController(client *client.Client,
 		policyLister:     policyInformer.GetLister(),
 		policySynced:     policyInformer.GetInfomer().HasSynced,
 		violationBuilder: violationBuilder,
-		eventBuilder:     eventController,
+		eventController:  eventController,
 		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), policyWorkQueueName),
 	}
 
@@ -178,10 +178,9 @@ func (pc *PolicyController) syncHandler(obj interface{}) error {
 	// process policy on existing resource
 	// get the violations and pass to violation Builder
 	// get the events and pass to event Builder
-	//TODO: processPolicy
+	glog.Infof("process policy %s on existing resources", policy.GetName())
 	pc.processPolicy(policy)
 
-	glog.Infof("process policy %s on existing resources", policy.GetName())
 	return nil
 }
 
@@ -204,19 +203,13 @@ func (pc *PolicyController) processPolicy(p *types.Policy) {
 			for _, resource := range list.Items {
 				name := rule.ResourceDescription.Name
 				gvk := resource.GroupVersionKind()
-				rawResource, err := resource.MarshalJSON()
-				if err != nil {
-					glog.Errorf("Unable to json parse resource %s", resource.GetName())
-					continue
-				}
 				if name != nil {
 					// wild card matching
 					if !wildcard.Match(*name, resource.GetName()) {
 						continue
 					}
 				}
-				glog.Info(string(rawResource))
-				ri := &resourceInfo{rawResource: rawResource, gvk: &metav1.GroupVersionKind{Group: gvk.Group,
+				ri := &resourceInfo{resource: &resource, gvk: &metav1.GroupVersionKind{Group: gvk.Group,
 					Version: gvk.Version,
 					Kind:    gvk.Kind}}
 				resources = append(resources, ri)
@@ -225,25 +218,41 @@ func (pc *PolicyController) processPolicy(p *types.Policy) {
 	}
 	// for the filtered resource apply policy
 	for _, r := range resources {
-		pc.applyPolicy(p, r.rawResource, r.gvk)
+		pc.applyPolicy(p, r)
 	}
-	// apply policies on the filtered resources
 }
 
-func (pc *PolicyController) applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) {
+func (pc *PolicyController) applyPolicy(p *types.Policy, resource *resourceInfo) {
 	policyResult := result.NewPolicyApplicationResult(p.Name)
 	//TODO: PR #181 use the list of kinds to filter here too
+	rawResource, err := resource.resource.MarshalJSON()
+	if err != nil {
+		ruleApplicationResult := result.NewRuleApplicationResult("")
+		ruleApplicationResult.FailWithMessagef("Unable to json parse resource %s", resource.resource.GetName())
+		policyResult = result.Append(policyResult, &ruleApplicationResult)
+	}
 
 	// Mutate
-	mutationResult := mutation(p, rawResource, gvk)
+	mutationResult := mutation(p, rawResource, resource.gvk)
 	policyResult = result.Append(policyResult, mutationResult)
 
 	// Validate
-	validationResult := engine.Validate(*p, rawResource, *gvk)
+	validationResult := engine.Validate(*p, rawResource, *resource.gvk)
 	policyResult = result.Append(policyResult, validationResult)
 	// Generate
-	generateResult := engine.Generate(pc.client, *p, rawResource, *gvk, true)
+	generateResult := engine.Generate(pc.client, *p, rawResource, *resource.gvk, true)
 	policyResult = result.Append(policyResult, generateResult)
+
+	// Create Events
+	// namespace := engine.ParseNamespaceFromObject(rawResource)
+	// name := engine.ParseNameFromObject(rawResource)
+	// resourceName := namespace + "/" + name
+	// for _, c := range policyResult.GetChildren() {
+	// 	eventsInfo := event.NewEventsFromResultOnResourceCreation(gvk.Kind, resourceName, c)
+	// 	pc.eventController.Add(eventsInfo)
+	// }
+	// Create Violations
+	//	violation := violation.NewViolation(p.Name, gvk.Kind, resourceName, rule)
 }
 
 func mutation(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) result.Result {

@@ -244,15 +244,16 @@ func (pc *PolicyController) applyPolicy(p *types.Policy, resource *resourceInfo)
 	policyResult = result.Append(policyResult, generateResult)
 
 	// Create Events
-	// namespace := engine.ParseNamespaceFromObject(rawResource)
-	// name := engine.ParseNameFromObject(rawResource)
-	// resourceName := namespace + "/" + name
-	// for _, c := range policyResult.GetChildren() {
-	// 	eventsInfo := event.NewEventsFromResultOnResourceCreation(gvk.Kind, resourceName, c)
-	// 	pc.eventController.Add(eventsInfo)
-	// }
-	// Create Violations
-	//	violation := violation.NewViolation(p.Name, gvk.Kind, resourceName, rule)
+	namespace := engine.ParseNamespaceFromObject(rawResource)
+	name := engine.ParseNameFromObject(rawResource)
+	resourceName := namespace + "/" + name
+	for _, c := range policyResult.GetChildren() {
+		eventsInfo := event.NewEventsFromResultOnResourceCreation(resource.gvk.Kind, resourceName, c)
+		pc.eventController.Add(eventsInfo)
+	}
+	// TODO Create Violations
+	// - Mutation
+	// - Generation
 }
 
 func mutation(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) result.Result {

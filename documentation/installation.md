@@ -52,7 +52,7 @@ openssl req -new -key webhook.key -out webhook.csr  -subj "/C=US/ST=test /L=test
 openssl x509 -req -in webhook.csr -CA rootCA.crt -CAkey rootCA.key -CAcreateserial -out webhook.crt -days 1024 -sha256
 ````
 
-The following files will be generated and can be used to create Kubernetes secrets:
+Among the files that will be generated, you can use the following files to create Kubernetes secrets:
 - rootCA.crt
 - webhooks.crt
 - webhooks.key
@@ -126,6 +126,11 @@ To run controller in this mode you should prepare TLS key/certificate pair for d
 The [Kyverno CLI](documentation/testing-policies.md#test-using-the-kyverno-cli) allows you to write and test policies without installing Kyverno in a Kubernetes cluster. Some features are not supported without a Kubernetes cluster.
 
 
+# Filter kuberenetes resources that admission webhook should not process
+
+The admission webhook checks if a policy is applicable on all admission requests. The kubernetes kinds that are not be processed can be filtered by using the command line argument 'filterKind'. 
+
+By default we have specified Nodes, Events, APIService & SubjectAccessReview as the kinds to be skipped in the [install.yaml](https://github.com/nirmata/kyverno/raw/master/definitions/install.yaml).
 
 ---
 <small>*Read Next >> [Writing Policies](/documentation/writing-policies.md)*</small>

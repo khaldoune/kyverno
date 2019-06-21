@@ -12,7 +12,6 @@ import (
 	certificates "k8s.io/api/certificates/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/rest"
 )
 
@@ -58,7 +57,7 @@ func (c *Client) submitAndApproveCertificateRequest(req *certificates.Certificat
 
 	for _, csr := range csrList.Items {
 		if csr.GetName() == req.ObjectMeta.Name {
-			err := c.DeleteResouce(CSRs, "", csr.GetName())
+			err := c.DeleteResouce(CSRs, "", csr.GetName(), false)
 			if err != nil {
 				return nil, fmt.Errorf("Unable to delete existing certificate request: %v", err)
 			}
@@ -67,7 +66,7 @@ func (c *Client) submitAndApproveCertificateRequest(req *certificates.Certificat
 		}
 	}
 
-	unstrRes, err := c.CreateResource(CSRs, "", req)
+	unstrRes, err := c.CreateResource(CSRs, "", req, false)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +121,7 @@ func (c *Client) fetchCertificateFromRequest(req *certificates.CertificateSignin
 func (c *Client) ReadRootCASecret() (result []byte) {
 	certProps, err := c.GetTLSCertProps(c.clientConfig)
 	if err != nil {
-		utilruntime.HandleError(err)
+		glog.Error(err)
 		return result
 	}
 	sname := generateRootCASecretName(certProps)
@@ -132,7 +131,7 @@ func (c *Client) ReadRootCASecret() (result []byte) {
 	}
 	tlsca, err := convertToSecret(stlsca)
 	if err != nil {
-		utilruntime.HandleError(err)
+		glog.Error(err)
 		return result
 	}
 
@@ -164,7 +163,7 @@ func (c *Client) ReadTlsPair(props tls.TlsCertificateProps) *tls.TlsPemPair {
 		sname := generateRootCASecretName(props)
 		_, err := c.GetResource(Secrets, props.Namespace, sname)
 		if err != nil {
-			utilruntime.HandleError(fmt.Errorf("Root CA secret %s/%s is required while using self-signed certificates TLS pair, defaulting to generating new TLS pair", props.Namespace, sname))
+			glog.Errorf("Root CA secret %s/%s is required while using self-signed certificates TLS pair, defaulting to generating new TLS pair", props.Namespace, sname)
 			return nil
 		}
 	}
@@ -209,7 +208,7 @@ func (c *Client) WriteTlsPair(props tls.TlsCertificateProps, pemPair *tls.TlsPem
 			Type: v1.SecretTypeTLS,
 		}
 
-		_, err := c.CreateResource(Secrets, props.Namespace, secret)
+		_, err := c.CreateResource(Secrets, props.Namespace, secret, false)
 		if err == nil {
 			glog.Infof("Secret %s is created", name)
 		}
@@ -223,7 +222,7 @@ func (c *Client) WriteTlsPair(props tls.TlsCertificateProps, pemPair *tls.TlsPem
 	secret.Data[v1.TLSCertKey] = pemPair.Certificate
 	secret.Data[v1.TLSPrivateKeyKey] = pemPair.PrivateKey
 
-	_, err = c.UpdateResource(Secrets, props.Namespace, secret)
+	_, err = c.UpdateResource(Secrets, props.Namespace, secret, false)
 	if err != nil {
 		return err
 	}

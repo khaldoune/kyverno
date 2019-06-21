@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -28,15 +27,16 @@ import (
 
 //Client enables interaction with k8 resource
 type Client struct {
-	client       dynamic.Interface
-	cachedClient discovery.CachedDiscoveryInterface
-	clientConfig *rest.Config
-	kclient      *kubernetes.Clientset
+	client          dynamic.Interface
+	cachedClient    discovery.CachedDiscoveryInterface
+	clientConfig    *rest.Config
+	kclient         kubernetes.Interface
+	DiscoveryClient IDiscovery
 }
 
 //NewClient creates new instance of client
 func NewClient(config *rest.Config) (*Client, error) {
-	client, err := dynamic.NewForConfig(config)
+	dclient, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -45,13 +45,15 @@ func NewClient(config *rest.Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return &Client{
-		client:       client,
+	client := Client{
+		client:       dclient,
 		clientConfig: config,
 		kclient:      kclient,
-		cachedClient: memory.NewMemCacheClient(kclient.Discovery()),
-	}, nil
+	}
+	// Set discovery client
+	discoveryClient := ServerPreferredResources{memory.NewMemCacheClient(kclient.Discovery())}
+	client.SetDiscovery(discoveryClient)
+	return &client, nil
 }
 
 //GetKubePolicyDeployment returns kube policy depoyment value
@@ -101,7 +103,7 @@ func (c *Client) getGroupVersionMapper(resource string) schema.GroupVersionResou
 	//TODO: add checks to see if the resource is supported
 	//TODO: build the resource list dynamically( by querying the registered resources)
 	//TODO: the error scenarios
-	return c.getGVR(resource)
+	return c.DiscoveryClient.getGVR(resource)
 }
 
 // GetResource returns the resource in unstructured/json format
@@ -120,34 +122,50 @@ func (c *Client) ListResource(resource string, namespace string, lselector *meta
 }
 
 // DeleteResouce deletes the specified resource
-func (c *Client) DeleteResouce(resource string, namespace string, name string) error {
-	return c.getResourceInterface(resource, namespace).Delete(name, &meta.DeleteOptions{})
+func (c *Client) DeleteResouce(resource string, namespace string, name string, dryRun bool) error {
+	options := meta.DeleteOptions{}
+	if dryRun {
+		options = meta.DeleteOptions{DryRun: []string{meta.DryRunAll}}
+	}
+	return c.getResourceInterface(resource, namespace).Delete(name, &options)
 
 }
 
 // CreateResource creates object for the specified resource/namespace
-func (c *Client) CreateResource(resource string, namespace string, obj interface{}) (*unstructured.Unstructured, error) {
+func (c *Client) CreateResource(resource string, namespace string, obj interface{}, dryRun bool) (*unstructured.Unstructured, error) {
+	options := meta.CreateOptions{}
+	if dryRun {
+		options = meta.CreateOptions{DryRun: []string{meta.DryRunAll}}
+	}
 	// convert typed to unstructured obj
 	if unstructuredObj := convertToUnstructured(obj); unstructuredObj != nil {
-		return c.getResourceInterface(resource, namespace).Create(unstructuredObj, meta.CreateOptions{})
+		return c.getResourceInterface(resource, namespace).Create(unstructuredObj, options)
 	}
 	return nil, fmt.Errorf("Unable to create resource ")
 }
 
 // UpdateResource updates object for the specified resource/namespace
-func (c *Client) UpdateResource(resource string, namespace string, obj interface{}) (*unstructured.Unstructured, error) {
+func (c *Client) UpdateResource(resource string, namespace string, obj interface{}, dryRun bool) (*unstructured.Unstructured, error) {
+	options := meta.UpdateOptions{}
+	if dryRun {
+		options = meta.UpdateOptions{DryRun: []string{meta.DryRunAll}}
+	}
 	// convert typed to unstructured obj
 	if unstructuredObj := convertToUnstructured(obj); unstructuredObj != nil {
-		return c.getResourceInterface(resource, namespace).Update(unstructuredObj, meta.UpdateOptions{})
+		return c.getResourceInterface(resource, namespace).Update(unstructuredObj, options)
 	}
 	return nil, fmt.Errorf("Unable to update resource ")
 }
 
 // UpdateStatusResource updates the resource "status" subresource
-func (c *Client) UpdateStatusResource(resource string, namespace string, obj interface{}) (*unstructured.Unstructured, error) {
+func (c *Client) UpdateStatusResource(resource string, namespace string, obj interface{}, dryRun bool) (*unstructured.Unstructured, error) {
+	options := meta.UpdateOptions{}
+	if dryRun {
+		options = meta.UpdateOptions{DryRun: []string{meta.DryRunAll}}
+	}
 	// convert typed to unstructured obj
 	if unstructuredObj := convertToUnstructured(obj); unstructuredObj != nil {
-		return c.getResourceInterface(resource, namespace).UpdateStatus(unstructuredObj, meta.UpdateOptions{})
+		return c.getResourceInterface(resource, namespace).UpdateStatus(unstructuredObj, options)
 	}
 	return nil, fmt.Errorf("Unable to update resource ")
 }
@@ -155,30 +173,16 @@ func (c *Client) UpdateStatusResource(resource string, namespace string, obj int
 func convertToUnstructured(obj interface{}) *unstructured.Unstructured {
 	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&obj)
 	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("Unable to convert : %v", err))
+		glog.Errorf("Unable to convert : %v", err)
 		return nil
 	}
 	return &unstructured.Unstructured{Object: unstructuredObj}
 }
 
-//ConvertToRuntimeObject converts unstructed to runtime.Object runtime instance
-func ConvertToRuntimeObject(obj *unstructured.Unstructured) (*runtime.Object, error) {
-	scheme := runtime.NewScheme()
-	gvk := obj.GroupVersionKind()
-	runtimeObj, err := scheme.New(gvk)
-	if err != nil {
-		return nil, err
-	}
-	if err = runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &runtimeObj); err != nil {
-		return nil, err
-	}
-	return &runtimeObj, nil
-}
-
 // GenerateResource creates resource of the specified kind(supports 'clone' & 'data')
 func (c *Client) GenerateResource(generator types.Generation, namespace string, processExistingResources bool) error {
 	var err error
-	rGVR := c.GetGVRFromKind(generator.Kind)
+	rGVR := c.DiscoveryClient.GetGVRFromKind(generator.Kind)
 	resource := &unstructured.Unstructured{}
 
 	var rdata map[string]interface{}
@@ -186,7 +190,7 @@ func (c *Client) GenerateResource(generator types.Generation, namespace string, 
 	if generator.Data != nil {
 		rdata, err = runtime.DefaultUnstructuredConverter.ToUnstructured(&generator.Data)
 		if err != nil {
-			utilruntime.HandleError(err)
+			glog.Error(err)
 			return err
 		}
 	}
@@ -212,7 +216,7 @@ func (c *Client) GenerateResource(generator types.Generation, namespace string, 
 	// If the generate is called while processing existing resource from policy-controller
 	// then we only verify if the resource is already present
 	if !processExistingResources {
-		_, err = c.CreateResource(rGVR.Resource, namespace, resource)
+		_, err = c.CreateResource(rGVR.Resource, namespace, resource, false)
 	} else {
 		_, err = c.GetResource(rGVR.Resource, namespace, generator.Name)
 	}
@@ -255,16 +259,29 @@ func (c *Client) waitUntilNamespaceIsCreated(name string) error {
 	return lastError
 }
 
-func (c *Client) getGVR(resource string) schema.GroupVersionResource {
+type IDiscovery interface {
+	getGVR(resource string) schema.GroupVersionResource
+	GetGVRFromKind(kind string) schema.GroupVersionResource
+}
+
+func (c *Client) SetDiscovery(discoveryClient IDiscovery) {
+	c.DiscoveryClient = discoveryClient
+}
+
+type ServerPreferredResources struct {
+	cachedClient discovery.CachedDiscoveryInterface
+}
+
+func (c ServerPreferredResources) getGVR(resource string) schema.GroupVersionResource {
 	emptyGVR := schema.GroupVersionResource{}
 	serverresources, err := c.cachedClient.ServerPreferredResources()
 	if err != nil {
-		utilruntime.HandleError(err)
+		glog.Error(err)
 		return emptyGVR
 	}
 	resources, err := discovery.GroupVersionResources(serverresources)
 	if err != nil {
-		utilruntime.HandleError(err)
+		glog.Error(err)
 		return emptyGVR
 	}
 	//TODO using cached client to support cache validation and invalidation
@@ -279,11 +296,11 @@ func (c *Client) getGVR(resource string) schema.GroupVersionResource {
 
 //To-do: measure performance
 //To-do: evaluate DefaultRESTMapper to fetch kind->resource mapping
-func (c *Client) GetGVRFromKind(kind string) schema.GroupVersionResource {
+func (c ServerPreferredResources) GetGVRFromKind(kind string) schema.GroupVersionResource {
 	emptyGVR := schema.GroupVersionResource{}
 	serverresources, err := c.cachedClient.ServerPreferredResources()
 	if err != nil {
-		utilruntime.HandleError(err)
+		glog.Error(err)
 		return emptyGVR
 	}
 	for _, serverresource := range serverresources {
@@ -291,7 +308,7 @@ func (c *Client) GetGVRFromKind(kind string) schema.GroupVersionResource {
 			if resource.Kind == kind && !strings.Contains(resource.Name, "/") {
 				gv, err := schema.ParseGroupVersion(serverresource.GroupVersion)
 				if err != nil {
-					utilruntime.HandleError(err)
+					glog.Error(err)
 					return emptyGVR
 				}
 				return gv.WithResource(resource.Name)

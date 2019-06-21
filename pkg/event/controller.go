@@ -2,6 +2,7 @@ package event
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -30,7 +31,7 @@ type controller struct {
 
 //Generator to generate event
 type Generator interface {
-	Add(info Info)
+	Add(infoList []*Info)
 }
 
 //Controller  api
@@ -76,8 +77,10 @@ func initRecorder(client *client.Client) record.EventRecorder {
 	return recorder
 }
 
-func (c *controller) Add(info Info) {
-	c.queue.Add(info)
+func (c *controller) Add(infoList []*Info) {
+	for _, info := range infoList {
+		c.queue.Add(*info)
+	}
 }
 
 func (c *controller) Run(stopCh <-chan struct{}) {
@@ -94,6 +97,7 @@ func (c *controller) Stop() {
 	glog.Info("Shutting down eventbuilder controller workers")
 	defer c.queue.ShutDown()
 }
+
 func (c *controller) runWorker() {
 	for c.processNextWorkItem() {
 	}
@@ -104,6 +108,7 @@ func (c *controller) processNextWorkItem() bool {
 	if shutdown {
 		return false
 	}
+
 	err := func(obj interface{}) error {
 		defer c.queue.Done(obj)
 		var key Info
@@ -136,39 +141,106 @@ func (c *controller) SyncHandler(key Info) error {
 		//TODO: policy is clustered resource so wont need namespace
 		resource, err = c.policyLister.Get(key.Resource)
 		if err != nil {
-			glog.Errorf("unable to create event for policy %s, will retry ", key.Resource)
+			glog.Errorf("Unable to create event for policy %s, will retry ", key.Resource)
 			return err
 		}
 	default:
 		namespace, name, err := cache.SplitMetaNamespaceKey(key.Resource)
 		if err != nil {
-			glog.Errorf("invalid resource key: %s", key.Resource)
+			glog.Errorf("Invalid resource key: %s", key.Resource)
 			return err
 		}
 		rName := c.client.DiscoveryClient.GetGVRFromKind(key.Kind).Resource
 		resource, err = c.client.GetResource(rName, namespace, name)
 		if err != nil {
-			return err
-		}
-		if err != nil {
-			glog.Errorf("unable to create event for resource %s, will retry ", key.Resource)
+			glog.Errorf("Unable to create event for resource %s, will retry ", key.Resource)
 			return err
 		}
 	}
+
+	glog.Infof("Creating event for resource %s: %s\n", key.Kind, key.Resource)
 	c.recorder.Event(resource, v1.EventTypeNormal, key.Reason, key.Message)
 	return nil
 }
 
 //NewEvent returns a new event
-func NewEvent(kind string, resource string, reason result.Reason, message MsgKey, args ...interface{}) Info {
-	msgText, err := getEventMsg(message, args)
+func NewEvent(kind string, resource string, reason result.Reason, message MsgKey, args ...interface{}) *Info {
+	msgText, err := getEventMsg(message, args...)
 	if err != nil {
-		glog.Error(err)
+		glog.Errorf("Failed to get event message text, err: %v\n", err)
 	}
-	return Info{
+
+	return &Info{
 		Kind:     kind,
 		Resource: resource,
 		Reason:   reason.String(),
 		Message:  msgText,
 	}
+}
+
+// NewEventsFromResultOnResourceCreation create event info list from result
+// this should be called on resource creation
+func NewEventsFromResultOnResourceCreation(kind string, resource string, rslt result.Result) []*Info {
+	var infoList []*Info
+	switch rslt.GetReason() {
+	case result.Success:
+		// create event for policy
+		infoList = append(infoList, NewEvent(policyKind, rslt.Name(), result.Success, SPolicyApply, rslt.Name(), resource))
+		// create event for resource
+		infoList = append(infoList, NewEvent(kind, resource, result.Success, SPolicyApply, rslt.Name(), resource))
+
+		glog.V(3).Infof("Success events info prepared for %s/%s and %s/%s\n", policyKind, rslt.Name(), kind, resource)
+
+		return infoList
+	case result.Failed:
+		var ruleNames []string
+		results := rslt.GetChildren()
+		for _, r := range results {
+			if r.GetReason() != result.Success {
+				ruleNames = append(ruleNames, r.Name())
+			}
+		}
+
+		rn := strings.Join(ruleNames, ",")
+		info := NewEvent(policyKind, rslt.Name(), result.Failed, FPolicyApplyBlockCreate, resource, rn)
+		glog.V(3).Infof("Rule(s) %s of policy %s blocked resource creation\n", rn, rslt.Name())
+		glog.V(4).Infof("Policy block creation event info %v\n", *info)
+
+		return append(infoList, info)
+	}
+	return nil
+}
+
+// NewEventsFromResultOnPolicyOperation create policyViolaton event
+// this should be called on policy changes
+// i.e. policy update / creation
+func NewEventsFromResultOnPolicyOperation(kind string, resource string, rslt result.Result) []*Info {
+	if rslt.GetReason() != result.Violation {
+		glog.V(3).Infof("Return on result reason %s\n", rslt.GetReason())
+		return nil
+	}
+
+	var infoList []*Info
+	var ruleNames []string
+
+	results := rslt.GetChildren()
+	for _, r := range results {
+		// add events to resource only on failure
+		if r.GetReason() == result.Failed {
+			ruleNames = append(ruleNames, r.Name())
+			// TODO: change TBD to violation ID below
+			info := NewEvent(kind, resource, result.Violation, FProcessRule, r.Name(), rslt.Name(), "TBD")
+			infoList = append(infoList, info)
+			glog.V(3).Infof("Policy violation event prepared for rule %s of policy %s\n", r.Name(), rslt.Name())
+			glog.V(4).Infof("Policy violation event info %v\n", *info)
+		}
+	}
+
+	// create policyViolation event for policy
+	// TODO: change TBD to violation ID below
+	info := NewEvent(policyKind, rslt.Name(), result.Violation, FProcessPolicy, resource, strings.Join(ruleNames, ","), "TBD")
+	glog.V(3).Infof("Event prepared for policy %s\n", rslt.Name())
+	glog.V(4).Infof("Fail to process policy event info: %v\n", *info)
+
+	return append(infoList, info)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/nirmata/kyverno/pkg/config"
 	client "github.com/nirmata/kyverno/pkg/dclient"
 	engine "github.com/nirmata/kyverno/pkg/engine"
+	"github.com/nirmata/kyverno/pkg/event"
 	"github.com/nirmata/kyverno/pkg/result"
 	"github.com/nirmata/kyverno/pkg/sharedinformer"
 	tlsutils "github.com/nirmata/kyverno/pkg/tls"
@@ -26,10 +27,11 @@ import (
 // WebhookServer contains configured TLS server with MutationWebhook.
 // MutationWebhook gets policies from policyController and takes control of the cluster with kubeclient.
 type WebhookServer struct {
-	server       http.Server
-	client       *client.Client
-	policyLister v1alpha1.PolicyLister
-	filterKinds  []string
+	server          http.Server
+	client          *client.Client
+	policyLister    v1alpha1.PolicyLister
+	eventController event.Generator
+	filterKinds     []string
 }
 
 // NewWebhookServer creates new instance of WebhookServer accordingly to given configuration
@@ -38,6 +40,7 @@ func NewWebhookServer(
 	client *client.Client,
 	tlsPair *tlsutils.TlsPemPair,
 	shareInformer sharedinformer.PolicyInformer,
+	eventController event.Generator,
 	filterKinds []string) (*WebhookServer, error) {
 
 	if tlsPair == nil {
@@ -52,9 +55,10 @@ func NewWebhookServer(
 	tlsConfig.Certificates = []tls.Certificate{pair}
 
 	ws := &WebhookServer{
-		client:       client,
-		policyLister: shareInformer.GetLister(),
-		filterKinds:  parseKinds(filterKinds),
+		client:          client,
+		policyLister:    shareInformer.GetLister(),
+		eventController: eventController,
+		filterKinds:     parseKinds(filterKinds),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(config.MutatingWebhookServicePath, ws.serve)
@@ -95,7 +99,6 @@ func (ws *WebhookServer) serve(w http.ResponseWriter, r *http.Request) {
 	admissionReview.Response.UID = admissionReview.Request.UID
 
 	responseJson, err := json.Marshal(admissionReview)
-
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Could not encode response: %v", err), http.StatusInternalServerError)
 		return
@@ -130,6 +133,7 @@ func (ws *WebhookServer) Stop() {
 
 // HandleMutation handles mutating webhook admission request
 func (ws *WebhookServer) HandleMutation(request *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
+	name := engine.ParseNameFromObject(request.Object.Raw)
 
 	policies, err := ws.policyLister.List(labels.NewSelector())
 	if err != nil {
@@ -146,8 +150,8 @@ func (ws *WebhookServer) HandleMutation(request *v1beta1.AdmissionRequest) *v1be
 			continue
 		}
 
-		glog.V(3).Infof("Handling mutation for Kind=%s, Namespace=%s Name=%s UID=%s patchOperation=%s",
-			request.Kind.Kind, request.Namespace, request.Name, request.UID, request.Operation)
+		glog.V(2).Infof("Handling mutation for Kind=%s, Namespace=%s Name=%s UID=%s patchOperation=%s",
+			request.Kind.Kind, request.Namespace, name, request.UID, request.Operation)
 
 		glog.Infof("Applying policy %s with %d rules\n", policy.ObjectMeta.Name, len(policy.Spec.Rules))
 
@@ -167,7 +171,16 @@ func (ws *WebhookServer) HandleMutation(request *v1beta1.AdmissionRequest) *v1be
 		glog.Info(admissionResult.String())
 	}
 
-	message := "\n" + admissionResult.String()
+	// create success event here
+	for _, c := range admissionResult.GetChildren() {
+		// skip to create event if no patch
+		if len(allPatches) == 0 {
+			break
+		}
+		resource := request.Namespace + "/" + name
+		eventsInfo := event.NewEventsFromResultOnResourceCreation(request.Kind.Kind, resource, c)
+		ws.eventController.Add(eventsInfo)
+	}
 
 	if admissionResult.GetReason() == result.Success {
 		patchType := v1beta1.PatchTypeJSONPatch
@@ -181,13 +194,14 @@ func (ws *WebhookServer) HandleMutation(request *v1beta1.AdmissionRequest) *v1be
 	return &v1beta1.AdmissionResponse{
 		Allowed: false,
 		Result: &metav1.Status{
-			Message: message,
+			Message: "\n" + admissionResult.String(),
 		},
 	}
 }
 
 // HandleValidation handles validating webhook admission request
 func (ws *WebhookServer) HandleValidation(request *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
+	name := engine.ParseNameFromObject(request.Object.Raw)
 
 	policies, err := ws.policyLister.List(labels.NewSelector())
 	if err != nil {
@@ -202,20 +216,18 @@ func (ws *WebhookServer) HandleValidation(request *v1beta1.AdmissionRequest) *v1
 			continue
 		}
 
-		glog.V(3).Infof("Handling validation for Kind=%s, Namespace=%s Name=%s UID=%s patchOperation=%s",
-			request.Kind.Kind, request.Namespace, request.Name, request.UID, request.Operation)
+		glog.V(2).Infof("Handling validation for Kind=%s, Namespace=%s Name=%s UID=%s patchOperation=%s",
+			request.Kind.Kind, request.Namespace, name, request.UID, request.Operation)
 
 		glog.Infof("Validating resource with policy %s with %d rules", policy.ObjectMeta.Name, len(policy.Spec.Rules))
 		validationResult := engine.Validate(*policy, request.Object.Raw, request.Kind)
 		admissionResult = result.Append(admissionResult, validationResult)
 
 		if validationError := validationResult.ToError(); validationError != nil {
-			glog.Warningf(validationError.Error())
+			glog.Warningf("\n" + validationError.Error())
 		}
 		glog.Info(admissionResult.String())
 	}
-
-	message := "\n" + admissionResult.String()
 
 	// Generation loop after all validation succeeded
 	var response *v1beta1.AdmissionResponse
@@ -232,9 +244,16 @@ func (ws *WebhookServer) HandleValidation(request *v1beta1.AdmissionRequest) *v1
 		response = &v1beta1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: message,
+				Message: "\n" + admissionResult.String(),
 			},
 		}
+	}
+
+	// create success event here
+	for _, c := range admissionResult.GetChildren() {
+		resource := request.Namespace + "/" + name
+		eventsInfo := event.NewEventsFromResultOnResourceCreation(request.Kind.Kind, resource, c)
+		ws.eventController.Add(eventsInfo)
 	}
 
 	return response

@@ -20,13 +20,16 @@ type Result interface {
 	StringWithIndent(indent string) string
 	GetReason() Reason
 	ToError() error
+	Name() string
+	GetChildren() []Result
 }
 
 // CompositeResult is used for result hierarchy
 type CompositeResult struct {
-	Message  string
-	Reason   Reason
-	Children []Result
+	PolicyName string
+	Message    string
+	Reason     Reason
+	Children   []Result
 }
 
 // RuleApplicationResult represents elementary result that is produced by PolicyEngine
@@ -79,6 +82,18 @@ func (e *RuleApplicationResult) ToError() error {
 //GetReason returns reason
 func (e *RuleApplicationResult) GetReason() Reason {
 	return e.Reason
+}
+
+// Name returns policy rule name of the result
+func (e *RuleApplicationResult) Name() string {
+	return e.PolicyRule
+}
+
+// GetChildren of RuleApplicationResult returns nil
+// since RuleApplicationResult is result per rule
+// it does not has children
+func (e *RuleApplicationResult) GetChildren() []Result {
+	return nil
 }
 
 //AddMessagef Adds formatted message to this result
@@ -138,11 +153,22 @@ func (e *CompositeResult) GetReason() Reason {
 	return e.Reason
 }
 
+//Name returns the policy name
+func (e *CompositeResult) Name() string {
+	return e.PolicyName
+}
+
+// GetChildren returns children of CompositeResult
+func (e *CompositeResult) GetChildren() []Result {
+	return e.Children
+}
+
 //NewPolicyApplicationResult creates a new policy application result
 func NewPolicyApplicationResult(policyName string) Result {
 	return &CompositeResult{
-		Message: fmt.Sprintf("policy - %s:", policyName),
-		Reason:  Success,
+		PolicyName: policyName,
+		Message:    fmt.Sprintf("policy - %s:", policyName),
+		Reason:     Success,
 	}
 }
 

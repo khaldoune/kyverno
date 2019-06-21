@@ -176,7 +176,7 @@ func ConvertToRuntimeObject(obj *unstructured.Unstructured) (*runtime.Object, er
 }
 
 // GenerateResource creates resource of the specified kind(supports 'clone' & 'data')
-func (c *Client) GenerateResource(generator types.Generation, namespace string) error {
+func (c *Client) GenerateResource(generator types.Generation, namespace string, processExistingResources bool) error {
 	var err error
 	rGVR := c.GetGVRFromKind(generator.Kind)
 	resource := &unstructured.Unstructured{}
@@ -209,7 +209,13 @@ func (c *Client) GenerateResource(generator types.Generation, namespace string) 
 		glog.Errorf("Can't create a resource %s: %v", generator.Name, err)
 		return nil
 	}
-	_, err = c.CreateResource(rGVR.Resource, namespace, resource)
+	// If the generate is called while processing existing resource from policy-controller
+	// then we only verify if the resource is already present
+	if !processExistingResources {
+		_, err = c.CreateResource(rGVR.Resource, namespace, resource)
+	} else {
+		_, err = c.GetResource(rGVR.Resource, namespace, generator.Name)
+	}
 	if err != nil {
 		return err
 	}

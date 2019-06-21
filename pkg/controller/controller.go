@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nirmata/kyverno/pkg/result"
+
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/golang/glog"
 	"github.com/minio/minio/pkg/wildcard"
@@ -30,6 +32,7 @@ type PolicyController struct {
 	violationBuilder violation.Generator
 	eventBuilder     event.Generator
 	queue            workqueue.RateLimitingInterface
+	filterKinds      []string
 }
 
 // NewPolicyController from cmd args
@@ -228,37 +231,48 @@ func (pc *PolicyController) processPolicy(p *types.Policy) {
 }
 
 func (pc *PolicyController) applyPolicy(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) {
+	policyResult := result.NewPolicyApplicationResult(p.Name)
 	//TODO: PR #181 use the list of kinds to filter here too
-	patches, result := engine.Mutate(*p, rawResource, *gvk)
+
+	// Mutate
+	mutationResult := mutation(p, rawResource, gvk)
+	policyResult = result.Append(policyResult, mutationResult)
+
+	// Validate
+	validationResult := engine.Validate(*p, rawResource, *gvk)
+	policyResult = result.Append(policyResult, validationResult)
+	// Generate
+	generateResult := engine.Generate(pc.client, *p, rawResource, *gvk, true)
+	policyResult = result.Append(policyResult, generateResult)
+}
+
+func mutation(p *types.Policy, rawResource []byte, gvk *metav1.GroupVersionKind) result.Result {
+	patches, mutationResult := engine.Mutate(*p, rawResource, *gvk)
 	// option 2: (original Resource + patch) compare with (original resource)
 	mergePatches := engine.JoinPatches(patches)
 	// merge the patches
 	patch, err := jsonpatch.DecodePatch(mergePatches)
 	if err != nil {
-		glog.Error(err)
-		return
+		mresult := result.NewRuleApplicationResult("")
+		mresult.FailWithMessagef(err.Error())
+		mutationResult = result.Append(mutationResult, &mresult)
 	}
 	// apply the patches returned by mutate to the original resource
 	patchedResource, err := patch.Apply(rawResource)
 	if err != nil {
-		glog.Error(err)
-		return
+		mresult := result.NewRuleApplicationResult("")
+		mresult.FailWithMessagef(err.Error())
+		mutationResult = result.Append(mutationResult, &mresult)
 	}
 	// compare (original Resource + patch) vs (original resource)
 	// to verify if they are equal
 	if !jsonpatch.Equal(patchedResource, rawResource) {
+		mresult := result.NewRuleApplicationResult("")
+		mresult.FailWithMessagef("Resource does not satisfy the generate policy")
+		mutationResult = result.Append(mutationResult, &mresult)
 		glog.Info("As objects are different, there is a non applied mutation overlay or patch. So create a violation to inform the user to correct it")
 	} else {
 		glog.Info("resources are equal, not mutatation required")
 	}
-	// create events accordingly to result
-	if patches != nil {
-		// patches should be nil or empty if the overlay or patch is already applied
-		// as the existing resouces are not to be modified we create policy violations
-		// Create Violation
-	}
-	result = engine.Validate(*p, rawResource, *gvk)
-	fmt.Println(result.String())
-	// create events accordingly to result
-	// Generate ??
+	return mutationResult
 }

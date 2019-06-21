@@ -204,10 +204,9 @@ func (ws *WebhookServer) HandleValidation(request *v1beta1.AdmissionRequest) *v1
 
 	if admissionResult.GetReason() == result.Success {
 		for _, policy := range policies {
-			engine.Generate(ws.client, *policy, request.Object.Raw, request.Kind)
+			generateResult := engine.Generate(ws.client, *policy, request.Object.Raw, request.Kind, false)
+			admissionResult = result.Append(admissionResult, generateResult)
 		}
-		glog.Info("Validation is successful")
-
 		response = &v1beta1.AdmissionResponse{
 			Allowed: true,
 		}

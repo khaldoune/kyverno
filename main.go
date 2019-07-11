@@ -26,7 +26,7 @@ func main() {
 	defer glog.Flush()
 
 	printVersionInfo()
-	clientConfig, err := createClientConfig(kubeconfig)
+	clientConfig, err := utils.CreateClientConfig(kubeconfig)
 	if err != nil {
 		glog.Fatalf("Error building kubeconfig: %v\n", err)
 	}
@@ -36,6 +36,7 @@ func main() {
 		glog.Fatalf("Error creating client: %v\n", err)
 	}
 
+	client.DiscoveryClient.OpenAPISchema()
 	policyInformerFactory, err := sharedinformer.NewSharedInformerFactory(clientConfig)
 	if err != nil {
 		glog.Fatalf("Error creating policy sharedinformer: %v\n", err)
@@ -51,7 +52,7 @@ func main() {
 		eventController)
 
 	genControler := gencontroller.NewGenController(client, eventController, policyInformerFactory, violationBuilder, kubeInformer.Core().V1().Namespaces())
-	tlsPair, err := initTLSPemPair(clientConfig, client)
+	tlsPair, err := utils.InitTLSPemPair(clientConfig, client)
 	if err != nil {
 		glog.Fatalf("Failed to initialize TLS key/certificate pair: %v\n", err)
 	}

@@ -1,9 +1,12 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	openapi_v2 "github.com/googleapis/gnostic/OpenAPIv2"
 
 	"github.com/golang/glog"
 	types "github.com/nirmata/kyverno/pkg/apis/policy/v1alpha1"
@@ -253,6 +256,7 @@ func (c *Client) waitUntilNamespaceIsCreated(name string) error {
 
 type IDiscovery interface {
 	GetGVRFromKind(kind string) schema.GroupVersionResource
+	OpenAPISchema() *openapi_v2.Document
 }
 
 func (c *Client) SetDiscovery(discoveryClient IDiscovery) {
@@ -261,6 +265,26 @@ func (c *Client) SetDiscovery(discoveryClient IDiscovery) {
 
 type ServerPreferredResources struct {
 	cachedClient discovery.CachedDiscoveryInterface
+}
+
+func (c ServerPreferredResources) OpenAPISchema() *openapi_v2.Document {
+	apidoc, err := c.cachedClient.OpenAPISchema()
+	if err != nil {
+		glog.Error(err)
+		//TODO if cannot refer to cluster, shall we refer to static repo for resources ?
+		return nil
+	}
+	for _, s := range apidoc.Definitions.AdditionalProperties {
+		fmt.Println(s.Name)
+		if s.Name == "io.k8s.api.apps.v1.Deployment" {
+			data, err := json.Marshal(s.Value.GetProperties())
+			if err != nil {
+				fmt.Println(err)
+			}
+			fmt.Println(string(data))
+		}
+	}
+	return apidoc
 }
 
 //GetGVRFromKind get the Group Version Resource from kind

@@ -1,7 +1,6 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -274,16 +273,16 @@ func (c ServerPreferredResources) OpenAPISchema() *openapi_v2.Document {
 		//TODO if cannot refer to cluster, shall we refer to static repo for resources ?
 		return nil
 	}
-	for _, s := range apidoc.Definitions.AdditionalProperties {
-		fmt.Println(s.Name)
-		if s.Name == "io.k8s.api.apps.v1.Deployment" {
-			data, err := json.Marshal(s.Value.GetProperties())
-			if err != nil {
-				fmt.Println(err)
-			}
-			fmt.Println(string(data))
-		}
-	}
+	// for _, s := range apidoc.Definitions.AdditionalProperties {
+	// 	fmt.Println(s.Name)
+	// 	if s.Name == "io.k8s.api.apps.v1.Deployment" {
+	// 		data, err := json.Marshal(s.Value.GetProperties())
+	// 		if err != nil {
+	// 			fmt.Println(err)
+	// 		}
+	// 		fmt.Println(string(data))
+	// 	}
+	// }
 	return apidoc
 }
 

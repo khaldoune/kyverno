@@ -145,7 +145,7 @@ func TestDynamicDepolymentLoad(t *testing.T) {
 }
 
 // Needs cluster as it loads the registered schemas from kube-api server
-func TestSchemaLoad(t *testing.T) {
+func TestSchemaLoadCluster(t *testing.T) {
 	deploy := []byte(`{
 		"apiVersion": "extensions/v1beta1",
 		"kind": "Deployment",
@@ -226,7 +226,107 @@ func TestSchemaLoad(t *testing.T) {
 	}
 
 	// Lets load the schema
-	schemaValidator := NewValidator(client)
+	schemaValidator := NewValidator(client, true)
+	result, err := schemaValidator.validate(deploy)
+	if err != nil {
+		t.Error(err)
+	}
+	if !result {
+		t.Error("Document does not match the schema")
+	}
+	// load
+	result, err = schemaValidator.validate(deploy)
+	if err != nil {
+		t.Error(err)
+	}
+	if !result {
+		t.Error("Document does not match the schema")
+	}
+
+}
+
+func TestSchemaLoadRepo(t *testing.T) {
+	deploy := []byte(`{
+		"apiVersion": "extensions/v1beta1",
+		"kind": "Deployment",
+		"metadata": {
+			"annotations": {
+				"deployment.kubernetes.io/revision": "1"
+			},
+			"generation": 1,
+			"labels": {
+				"app": "nginx_is_mutated",
+				"cli": "test",
+				"isMutated": "true"
+			},
+			"name": "nginx-deployment",
+			"namespace": "default",
+			"resourceVersion": "120124",
+			"selfLink": "/apis/extensions/v1beta1/namespaces/default/deployments/nginx-deployment",
+			"uid": "cc6e54a9-9c49-11e9-ad3c-0800273eb62d"
+		},
+		"spec": {
+			"progressDeadlineSeconds": 600,
+			"replicas": 1,
+			"revisionHistoryLimit": 10,
+			"selector": {
+				"matchLabels": {
+					"app": "nginx"
+				}
+			},
+			"strategy": {
+				"rollingUpdate": {
+					"maxSurge": "25%",
+					"maxUnavailable": "25%"
+				},
+				"type": "RollingUpdate"
+			},
+			"template": {
+				"metadata": {
+					"creationTimestamp": null,
+					"labels": {
+						"app": "nginx"
+					}
+				},
+				"spec": {
+					"containers": [
+						{
+							"image": "nginx:1.7.9",
+							"imagePullPolicy": "Always",
+							"name": "nginx",
+							"ports": [
+								{
+									"containerPort": 80,
+									"protocol": "TCP"
+								}
+							],
+							"resources": {},
+							"terminationMessagePath": "/dev/termination-log",
+							"terminationMessagePolicy": "File"
+						}
+					],
+					"dnsPolicy": "ClusterFirst",
+					"restartPolicy": "Always",
+					"schedulerName": "default-scheduler",
+					"securityContext": {},
+					"terminationGracePeriodSeconds": 30
+				}
+			}
+		},
+	}`)
+
+	// clientConfig, err := utils.CreateClientConfig("/Users/shivd/.kube/config")
+	// if err != nil {
+	// 	glog.Fatalf("Error building kubeconfig: %v\n", err)
+	// }
+
+	// client, err := client.NewClient(clientConfig)
+	// if err != nil {
+	// 	glog.Fatalf("Error creating client: %v\n", err)
+	// }
+
+	// Lets load the schema
+	schemaValidator := NewValidator(nil, false)
 	result, err := schemaValidator.validate(deploy)
 	if err != nil {
 		t.Error(err)

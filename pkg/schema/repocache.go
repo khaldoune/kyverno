@@ -9,7 +9,6 @@ import (
 
 	"github.com/nirmata/kyverno/pkg/schema/utils"
 
-	client "github.com/nirmata/kyverno/pkg/dclient"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -18,7 +17,7 @@ type RepoCache struct {
 	mu   sync.RWMutex
 }
 
-func NewRepoCacheFactory(client *client.Client) *RepoCache {
+func NewRepoCacheFactory() *RepoCache {
 	cache := &RepoCache{
 		// Key : apiversion kind
 		data: map[string]*gojsonschema.Schema{},
@@ -72,6 +71,7 @@ func (c *RepoCache) lookup(kind string, apiversion string) *gojsonschema.Schema 
 }
 
 func determineSchema(kind, apiVersion string) string {
+	//TODO : allow users to determine the version of kubernetes they want to chcek against
 	Version := ""
 	if Version == "" {
 		Version = "master"
@@ -92,5 +92,4 @@ func determineSchema(kind, apiVersion string) string {
 		kindSuffix = fmt.Sprintf("-%s-%s", strings.ToLower(versionParts[0]), strings.ToLower(groupParts[1]))
 	}
 	return fmt.Sprintf("%s/%s-standalone%s/%s%s.json", baseURL, normalisedVersion, strictSuffix, strings.ToLower(kind), kindSuffix)
-
 }

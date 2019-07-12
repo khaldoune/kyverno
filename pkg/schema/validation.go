@@ -10,10 +10,16 @@ type Validator struct {
 	cache Interface
 }
 
-func NewValidator(client *client.Client) Interface {
+func NewValidator(client *client.Client, cluster bool) Interface {
 	initializerLoader()
+	if cluster {
+		// Cache loads the schema from kube-apiserver discovery
+		return &Validator{
+			cache: NewClusterCacheFactory(client)}
+	}
+	// default: refer to repo containting static kubernetes versions
 	return &Validator{
-		cache: NewClusterCacheFactory(client)}
+		cache: NewRepoCacheFactory()}
 }
 
 func (v *Validator) validate(document []byte) (bool, error) {

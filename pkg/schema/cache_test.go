@@ -344,3 +344,53 @@ func TestSchemaLoadRepo(t *testing.T) {
 	}
 
 }
+
+func TestPartial(t *testing.T) {
+	deploy := []byte(`{
+		"apiVersion": "extensions/v1beta1",
+		"kind": "Deployment",
+		"spec": {
+			"progressDeadlineSeconds": 600,
+			"replicas": 1,
+			"revisionHistoryLimit": 10,
+			"selector": {
+				"matchLabels": {
+					"app": "nginx"
+				}
+			},
+				"spec": {
+					"containers": [
+						{
+							"image": "nginx:1.7.9",
+							"imagePullPolicy": "Always",
+							"name": "nginx",
+							"ports": [
+								{
+									"containerPort": 80,
+									"protocol": "TCP"
+								}
+							],
+							"resources": {},
+							"terminationMessagePath": "/dev/termination-log",
+							"terminationMessagePolicy": "File"
+						}
+					],
+					"dnsPolicy": "ClusterFirst",
+					"restartPolicy": "Always",
+					"schedulerName": "default-scheduler",
+					"securityContext": {},
+					"terminationGracePeriodSeconds": 30
+				}
+			}
+		},
+	}`)
+	// Lets load the schema
+	schemaValidator := NewValidator(nil, false)
+	result, err := schemaValidator.validate(deploy)
+	if err != nil {
+		t.Error(err)
+	}
+	if !result {
+		t.Error("Document does not match the schema")
+	}
+}

@@ -2,18 +2,22 @@ package main
 
 import (
 	"flag"
+	"net/http"
 
 	"github.com/golang/glog"
 	"github.com/nirmata/kyverno/pkg/annotations"
+	v1alpha1 "github.com/nirmata/kyverno/pkg/client/listers/policy/v1alpha1"
 	"github.com/nirmata/kyverno/pkg/config"
 	controller "github.com/nirmata/kyverno/pkg/controller"
 	client "github.com/nirmata/kyverno/pkg/dclient"
 	event "github.com/nirmata/kyverno/pkg/event"
 	gencontroller "github.com/nirmata/kyverno/pkg/gencontroller"
+	kyvernoprometheus "github.com/nirmata/kyverno/pkg/prometheus"
 	"github.com/nirmata/kyverno/pkg/sharedinformer"
 	"github.com/nirmata/kyverno/pkg/utils"
 	"github.com/nirmata/kyverno/pkg/violation"
 	"github.com/nirmata/kyverno/pkg/webhooks"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/sample-controller/pkg/signals"
 )
 
@@ -90,6 +94,8 @@ func main() {
 
 	server.RunAsync()
 
+	go startPrometheus(policyInformerFactory.GetLister())
+
 	<-stopCh
 	genControler.Stop()
 	eventController.Stop()
@@ -113,4 +119,14 @@ func init() {
 	flag.StringVar(&filterK8Resources, "filterK8Resources", "", "k8 resource in format [kind,namespace,name] where policy is not evaluated by the admission webhook. example --filterKind \"[Deployment, kyverno, kyverno]\" --filterKind \"[Deployment, kyverno, kyverno],[Events, *, *]\"")
 	config.LogDefaultFlags()
 	flag.Parse()
+}
+
+func startPrometheus(policyLister v1alpha1.PolicyLister) {
+	pm := kyvernoprometheus.InitPrometheusMetrics("kyverno")
+
+	metricsManager := kyvernoprometheus.NewMetricsManager(policyLister)
+	pm.AuditPolicy.Set(metricsManager.CountAuditPolicy())
+
+	http.Handle("/metrics", promhttp.Handler())
+	glog.Fatal(http.ListenAndServe(":8080", nil))
 }

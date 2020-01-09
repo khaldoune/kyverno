@@ -116,20 +116,23 @@ func getValues(ctx context.EvalInterface, groups [][]string, path string) map[st
 	for _, group := range groups {
 		if len(group) == 2 {
 			// 0th is string
+			varName := group[0]
+			varValue := group[1]
 			// 1st is the capture group
 			if group[1] == "@this" {
-				glog.V(4).Infof("@this found at path %s", path)
+				glog.V(4).Infof("@this found at path %s", varName)
+				varValue = path
 			}
-			variable, err := ctx.Query(group[1])
+			variable, err := ctx.Query(varValue)
 			if err != nil {
-				glog.V(4).Infof("variable substitution failed for query %s: %v", group[0], err)
-				subs[group[0]] = emptyInterface
+				glog.V(4).Infof("variable substitution failed for query %s: %v", varName, err)
+				subs[varName] = emptyInterface
 				continue
 			}
 			if variable == nil {
-				subs[group[0]] = emptyInterface
+				subs[varName] = emptyInterface
 			} else {
-				subs[group[0]] = variable
+				subs[varName] = variable
 			}
 		}
 	}

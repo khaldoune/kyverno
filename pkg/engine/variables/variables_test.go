@@ -17,6 +17,7 @@ func Test_variablesub1(t *testing.T) {
 		"kind": "ClusterRole",
 		"name": "ns-owner-{{request.userInfo.username}}",
 		"data": {
+			"temp": "{{@this}}",
 			"rules": [
 				{
 					"apiGroups": [

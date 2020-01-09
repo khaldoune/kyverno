@@ -65,7 +65,7 @@ func Test_variablesub1(t *testing.T) {
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
 	ctx.AddUserInfo(userReqInfo)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "request.object")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -131,7 +131,7 @@ func Test_variablesub_multiple(t *testing.T) {
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
 	ctx.AddUserInfo(userReqInfo)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -194,7 +194,7 @@ func Test_variablesubstitution(t *testing.T) {
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
 	ctx.AddUserInfo(userReqInfo)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -237,7 +237,7 @@ func Test_variableSubstitutionValue(t *testing.T) {
 	// context
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -277,7 +277,7 @@ func Test_variableSubstitutionValueOperatorNotEqual(t *testing.T) {
 	// context
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -319,7 +319,7 @@ func Test_variableSubstitutionValueFail(t *testing.T) {
 	// context
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -366,7 +366,7 @@ func Test_variableSubstitutionObject(t *testing.T) {
 	// context
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -414,7 +414,7 @@ func Test_variableSubstitutionObjectOperatorNotEqualFail(t *testing.T) {
 	// context
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)
@@ -463,7 +463,7 @@ func Test_variableSubstitutionMultipleObject(t *testing.T) {
 	// context
 	ctx := context.NewContext()
 	ctx.AddResource(resourceRaw)
-	value := SubstituteVariables(ctx, pattern)
+	value := SubstituteVariables(ctx, pattern, "")
 	resultRaw, err := json.Marshal(value)
 	if err != nil {
 		t.Error(err)

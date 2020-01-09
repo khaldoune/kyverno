@@ -23,8 +23,8 @@ type EqualHandler struct {
 
 func (eh EqualHandler) Evaluate(key, value interface{}) bool {
 	// substitute the variables
-	nKey := eh.subHandler(eh.ctx, key)
-	nValue := eh.subHandler(eh.ctx, value)
+	nKey := eh.subHandler(eh.ctx, key, "")
+	nValue := eh.subHandler(eh.ctx, value, "")
 	// key and value need to be of same type
 	switch typedKey := nKey.(type) {
 	case bool:

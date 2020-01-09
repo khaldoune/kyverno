@@ -36,7 +36,7 @@ func ProcessOverlay(ctx context.EvalInterface, rule kyverno.Rule, resource unstr
 	// first pass we substitute all the JMESPATH substitution for the variable
 	// variable: {{<JMESPATH>}}
 	// if a JMESPATH fails, we dont return error but variable is substitured with nil and error log
-	overlay := variables.SubstituteVariables(ctx, rule.Mutation.Overlay)
+	overlay := variables.SubstituteVariables(ctx, rule.Mutation.Overlay, "")
 
 	patches, overlayerr := processOverlayPatches(resource.UnstructuredContent(), overlay)
 	// resource does not satisfy the overlay pattern, we don't apply this rule

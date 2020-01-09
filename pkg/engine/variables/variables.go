@@ -1,7 +1,9 @@
 package variables
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/golang/glog"
@@ -14,45 +16,50 @@ import (
 // - no operator + variable(string,object)
 // unsupported substitutions
 // - operator + variable(object) -> as we dont support operators with object types
-func SubstituteVariables(ctx context.EvalInterface, pattern interface{}) interface{} {
+func SubstituteVariables(ctx context.EvalInterface, pattern interface{}, path string) interface{} {
 	// var err error
 	switch typedPattern := pattern.(type) {
 	case map[string]interface{}:
-		return substituteMap(ctx, typedPattern)
+		return substituteMap(ctx, typedPattern, path)
 	case []interface{}:
-		return substituteArray(ctx, typedPattern)
+		return substituteArray(ctx, typedPattern, path)
 	case string:
 		// variable substitution
-		return substituteValue(ctx, typedPattern)
+		return substituteValue(ctx, typedPattern, path)
 	default:
 		return pattern
 	}
 }
+func escape(key string) string {
+	return fmt.Sprintf("\"%s\"", key)
+}
 
-func substituteMap(ctx context.EvalInterface, patternMap map[string]interface{}) map[string]interface{} {
+func substituteMap(ctx context.EvalInterface, patternMap map[string]interface{}, path string) map[string]interface{} {
 	for key, patternElement := range patternMap {
-		value := SubstituteVariables(ctx, patternElement)
+		currentPath := path + "." + escape(key)
+		value := SubstituteVariables(ctx, patternElement, currentPath)
 		patternMap[key] = value
 	}
 	return patternMap
 }
 
-func substituteArray(ctx context.EvalInterface, patternList []interface{}) []interface{} {
+func substituteArray(ctx context.EvalInterface, patternList []interface{}, path string) []interface{} {
 	for idx, patternElement := range patternList {
-		value := SubstituteVariables(ctx, patternElement)
+		currentPath := escape(path+strconv.Itoa(idx)) + "."
+		value := SubstituteVariables(ctx, patternElement, currentPath)
 		patternList[idx] = value
 	}
 	return patternList
 }
 
-func substituteValue(ctx context.EvalInterface, valuePattern string) interface{} {
+func substituteValue(ctx context.EvalInterface, valuePattern string, path string) interface{} {
 	// patterns supported
 	// - operator + string
 	// operator + variable
 	operatorVariable := getOperator(valuePattern)
 	variable := valuePattern[len(operatorVariable):]
 	// substitute variable with value
-	value := getValueQuery(ctx, variable)
+	value := getValueQuery(ctx, variable, path)
 	if operatorVariable == "" {
 		// default or operator.Equal
 		// equal + string variable
@@ -70,14 +77,15 @@ func substituteValue(ctx context.EvalInterface, valuePattern string) interface{}
 	}
 }
 
-func getValueQuery(ctx context.EvalInterface, valuePattern string) interface{} {
+func getValueQuery(ctx context.EvalInterface, valuePattern string, path string) interface{} {
+	glog.V(4).Infof("path:= %s", path)
 	var emptyInterface interface{}
 	// extract variable {{<variable>}}
 	validRegex := regexp.MustCompile(`\{\{([^{}]*)\}\}`)
 	groups := validRegex.FindAllStringSubmatch(valuePattern, -1)
 	// can have multiple variables in a single value pattern
 	// var Map <variable,value>
-	varMap := getValues(ctx, groups)
+	varMap := getValues(ctx, groups, path)
 	if len(varMap) == 0 {
 		// there are no varaiables
 		// return the original value
@@ -102,13 +110,16 @@ func getValueQuery(ctx context.EvalInterface, valuePattern string) interface{} {
 }
 
 // returns map of variables as keys and variable values as values
-func getValues(ctx context.EvalInterface, groups [][]string) map[string]interface{} {
+func getValues(ctx context.EvalInterface, groups [][]string, path string) map[string]interface{} {
 	var emptyInterface interface{}
 	subs := map[string]interface{}{}
 	for _, group := range groups {
 		if len(group) == 2 {
 			// 0th is string
 			// 1st is the capture group
+			if group[1] == "@this" {
+				glog.V(4).Infof("@this found at path %s", path)
+			}
 			variable, err := ctx.Query(group[1])
 			if err != nil {
 				glog.V(4).Infof("variable substitution failed for query %s: %v", group[0], err)

@@ -15,7 +15,7 @@ type OperatorHandler interface {
 	validateValueWithSlicePattern(key []interface{}, value interface{}) bool
 }
 
-type VariableSubstitutionHandler = func(ctx context.EvalInterface, pattern interface{}) interface{}
+type VariableSubstitutionHandler = func(ctx context.EvalInterface, pattern interface{},path string) interface{}
 
 func CreateOperatorHandler(ctx context.EvalInterface, op kyverno.ConditionOperator, subHandler VariableSubstitutionHandler) OperatorHandler {
 	switch op {

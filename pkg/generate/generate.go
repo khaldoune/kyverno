@@ -209,13 +209,13 @@ func variableSubsitutionForAttributes(gen kyverno.Generation, ctx context.EvalIn
 	// Name
 	name := gen.Name
 	namespace := gen.Namespace
-	newNameVar := variables.SubstituteVariables(ctx, name)
+	newNameVar := variables.SubstituteVariables(ctx, name, "")
 
 	if newName, ok := newNameVar.(string); ok {
 		gen.Name = newName
 	}
 
-	newNamespaceVar := variables.SubstituteVariables(ctx, namespace)
+	newNamespaceVar := variables.SubstituteVariables(ctx, namespace, "")
 	if newNamespace, ok := newNamespaceVar.(string); ok {
 		gen.Namespace = newNamespace
 	}
@@ -223,11 +223,11 @@ func variableSubsitutionForAttributes(gen kyverno.Generation, ctx context.EvalIn
 	cloneName := gen.Clone.Name
 	cloneNamespace := gen.Clone.Namespace
 
-	newcloneNameVar := variables.SubstituteVariables(ctx, cloneName)
+	newcloneNameVar := variables.SubstituteVariables(ctx, cloneName, "")
 	if newcloneName, ok := newcloneNameVar.(string); ok {
 		gen.Clone.Name = newcloneName
 	}
-	newcloneNamespaceVar := variables.SubstituteVariables(ctx, cloneNamespace)
+	newcloneNamespaceVar := variables.SubstituteVariables(ctx, cloneNamespace, "")
 	if newcloneNamespace, ok := newcloneNamespaceVar.(string); ok {
 		gen.Clone.Namespace = newcloneNamespace
 	}
@@ -235,7 +235,7 @@ func variableSubsitutionForAttributes(gen kyverno.Generation, ctx context.EvalIn
 }
 
 func handleData(ruleName string, generateRule kyverno.Generation, client *dclient.Client, resource unstructured.Unstructured, ctx context.EvalInterface, state kyverno.GenerateRequestState) (map[string]interface{}, error) {
-	newData := variables.SubstituteVariables(ctx, generateRule.Data)
+	newData := variables.SubstituteVariables(ctx, generateRule.Data, "")
 
 	// check if resource exists
 	obj, err := client.GetResource(generateRule.Kind, generateRule.Namespace, generateRule.Name)

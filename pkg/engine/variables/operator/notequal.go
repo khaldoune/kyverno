@@ -23,8 +23,8 @@ type NotEqualHandler struct {
 
 func (neh NotEqualHandler) Evaluate(key, value interface{}) bool {
 	// substitute the variables
-	nKey := neh.subHandler(neh.ctx, key)
-	nValue := neh.subHandler(neh.ctx, value)
+	nKey := neh.subHandler(neh.ctx, key, "")
+	nValue := neh.subHandler(neh.ctx, value, "")
 	// key and value need to be of same type
 	switch typedKey := nKey.(type) {
 	case bool:

@@ -22,7 +22,7 @@ func ValidateResourceWithPattern(ctx context.EvalInterface, resource, pattern in
 	// first pass we substitute all the JMESPATH substitution for the variable
 	// variable: {{<JMESPATH>}}
 	// if a JMESPATH fails, we dont return error but variable is substitured with nil and error log
-	pattern = variables.SubstituteVariables(ctx, pattern)
+	pattern = variables.SubstituteVariables(ctx, pattern, "")
 	return validateResourceElement(resource, pattern, pattern, "/")
 }
 
